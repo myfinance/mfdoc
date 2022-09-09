@@ -1,0 +1,133 @@
+:doctype: book
+:page-layout!:
+:toc: left
+:toclevels: 4
+:sectanchors:
+:sectlinks:
+:sectnums:
+:linkattrs:
+:icons: font
+:source-highlighter: coderay
+:source-language: asciidoc
+:experimental:
+:stem:
+:idprefix:
+:idseparator: -
+:ast: &ast;
+:dagger: pass:normal[^&dagger;^]
+:endash: &#8211;
+:y: icon:check[role="green"]
+:n: icon:times[role="red"]
+:c: icon:file-text-o[role="blue"]
+:table-caption!:
+:example-caption!:
+:figure-caption!:
+:imagesdir: ./images
+:stylesdir: ./styles
+:scriptsdir: ./js
+:includedir: _includes
+:underscore: _
+:adp: AsciiDoc Python
+:adr: Asciidoctor
+
+= MyFinance Handbuch
+Holger Fischer
+:description: This guide describes the Asciidoctor attributes, values, and layout options available for producing a customized and polished document.
+:keywords: AsciiDoc, MyFinance, Analyse, how to
+
+
+
+[NOTE]
+.Dieses Dokument wird aktiv entwickelt und diskutiert!
+====
+Gefundene Fehler und Ergänzungswünsche werden gerne entgegengenommen!
+====
+
+*Versionstabelle*
+
+[cols=",,,",]
+|=====================================================================================
+|*Autor* |*Version* |*Änderungsdatum* |*Bemerkungen*
+|Holger Fischer |01 |09.11.2018 | Erste Strukturierung
+|Holger Fischer |01 |09.09.2022 | Update nach Spring Boot
+|=====================================================================================
+
+== Quickstarts
+
+== MyFinance Fachkonzept
+
+include::_includes/MFFachkonzept.adoc[leveloffset=2]
+
+== MyFinance DV-Konzept
+
+include::_includes/MFDvk.adoc[leveloffset=2]
+
+== Basistechnologien - Java Frameworks
+
+
+=== Swagger bzw. OpenAPI
+
+link:https://github.com/swagger-api[Swagger]
+
+
+=== Authorisierung und Authentifizierung
+
+todo
+
+== Lokale Installation und Konfiguration
+
+=== Installation des Containers
+
+=== Konfiguration des Containers
+
+=== Start und Stop
+
+=== Diagnose
+
+==== Logging
+
+==== Debugging
+
+[appendix]
+== Entwicklungsumgebung
+
+=== Tools
+
+==== Maven
+
+Benötigt wird Maven in Version >= 3.5.2, zu finden hier: link:http://maven.apache.org/download.cgi[Maven Download]
+
+Das Archiv *maven-<version>-bin.zip* herunterladen, in einen Tools-Ordner entpacken, den ausgepackten Ordner nach maven umbenennen, und Tools-Ordner/maven/bin in den PATH (Umgebungsvariable) eintragen
+
+==== Java JDK
+
+Ein JDK (Java Developmemnt Kit) wird benötigt, um  Java-Sourcen mit Hilfe von zB Maven zu kompilieren.
+
+Ein JDK kann auf zwei verschiedene Arten installiert werden:
+
+
+==== Git
+
+[appendix]
+== Monitoring und Profiling
+
+
+[glossary]
+== Glossar
+
+API:: Application Programming Interface
+Yield:: Rendite
+InitialCost:: Anschaffungspreis
+Profit:: Überschuss
+
+[index]
+== Index
+
+NOTE: Section pending
+
+[bibliography]
+== Referenzen
+- [[[mfdvk]]] MyFinance DV Fachkonzept
+
+
+u

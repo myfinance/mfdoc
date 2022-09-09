@@ -1,0 +1,5 @@
+:imagesdir: ./images
+:stylesdir: ./styles
+:scriptsdir: ./js
+// setup source dir for copied java sources
+:sourcesdir: ../../../../target/sources

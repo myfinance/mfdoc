@@ -1,0 +1,263 @@
+include::header.adoc[]
+
+= DB Model
+
+.MyFinance Data Model
+image::mf_db_model.png[MyFinance Data Model]
+
+.Dac Data Model
+image::dac_db_model.png[Dac Data Model]
+
+= APIs
+
+Die von der MyFinance Infrastruktur bereitgestellten Funktionalitäten und werden über APIs zugänglich gemacht. Eine API bündelt eine fachliche und/oder technische Menge von Funktionen, mit denen der Funktionsumfang einer Anwendung möglichst vollständig und kontrolliert über standardisierte Schnittstellen zugänglich gemacht wird.
+
+[plantuml]
+.APIs machen Funktionalität zugänglich
+
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+cloud {
+    [Client1]
+    [Client2]
+}
+
+frame "APIs" {
+    RESTAPI1 - [API1]
+    RESTAPI2 - [API2]
+}
+
+frame Applications {
+    [Application1]
+    [Application2]
+}
+
+frame SharedComponents {
+    [SharedComponent1]
+    [SharedComponent2]
+}
+
+
+[Client1] --> RESTAPI1
+[Client2] --> RESTAPI1
+[Client2] --> RESTAPI2
+[API1] --> [Application1]
+[API2] --> [Application2]
+[Application1] --> [SharedComponent1]
+[Application1] --> [SharedComponent2]
+[Application2] --> [SharedComponent1]
+@enduml
+....
+
+
+= Implementierte APIs
+
+Es existieren aktuell folgende APIs, die produktiv genutzt werden:
+
+[%autowidth.spread,cols=3*,options="header"]
+|===
+|Name|Environment-basiert (*) |Beschreibung
+|link:/api-docs/#/MyFinance[MyFinance]
+|Ja
+|mit dieser Api können Daten für MyFinance gepflegt und abgefragt werden
+
+|link:/api-docs/#/Jobs[Jobs]
+|Ja
+|Eine Api zum Starten von Jobs>.
+
+|===
+
+(*) Environment-basiert: Die APIs können je nach übergebener EnvironmentID in unterschiedlichen fachlichen und technischen System-Umgebungen wirken
+
+TIP: Unter link:/api-docs3[Api Docs] sind noch mehr als die oben gelisteten Kategorien / API-Top Level zu sehen - dies hat einerseits technische Gründe, andererseits sind dort auch Test- und abzuschaltende APIs aufgelistet.
+
+
+= coding conventions for Rest:
+
+== When should you use Path Variable, and how about Query Parameter?
+If you want to identify a resource, you should use Path Variable. But if you want to sort or filter items, then you should use query parameter.
+/users # Fetch a list of users
+/users?occupation=programer # Fetch a list of programer user
+/users/123 # Fetch a user who has id 123
+
+== Response
+
+in case of an error throw a runtime exception -> a http 500 message will be sent with the exception and the client know what happens
+
+In case of success without a returnvalue: Response.ok().build();
+
+Allways return the type "response" and convert the returnvalue to json Response.ok(LeafResource.SerializeToJSON("test")).build();
+If you return a String you will get "can't parse JSON.  Raw result:"
+
+Return value type should allways(if you use the Get methode) inherit from LeafResource to get the url and data embedded in the response json
+
+== Hibernate Domain classes as transfer objects
+
+To use Hibernate Domain classes as transfer objects for Rest you have to mind smome things:
+
+=== One to Many and Many to One
+
+If you have bidirectional references you get a circular dependency and so a stack overflow during the json serialization
+So you have to do the following
+
+* define an annotation (the is done in de.hf.dac.api.base.json)
+[source,java]
+----
+   @Retention(RetentionPolicy.RUNTIME)
+   @Target(ElementType.FIELD)
+   public @interface Exclude {}
+----
+* Exclude the field
+[source,java]
+----
+    @Exclude
+    private String field;
+----
+* add exclude Strategy
+[source,java]
+----
+ExclusionStrategy strategy = new ExclusionStrategy() {
+        @Override
+        public boolean shouldSkipClass(Class<?> clazz) {
+            return false;
+        }
+
+        @Override
+        public boolean shouldSkipField(FieldAttributes field) {
+            return field.getAnnotation(Exclude.class) != null;
+        }
+};
+----
+* use the strategy
+[source,java]
+----
+Gson gson = new GsonBuilder()
+  .excludeFieldsWithoutExposeAnnotation()
+  .create();
+String jsonString = gson.toJson(source);
+----
+
+*If your Resource derives from de.hf.dac.services.resources.leaf.LeafResource you just have to make the fieldannotation*
+
+== Klassenbäume
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+rectangle AbsHandler
+rectangle AbsTransactionHandler
+rectangle AbsTransferHandler
+rectangle BudgetTransferHandler
+rectangle IncomeExpensesHandler
+rectangle LinkedIncomeExpensesHandler
+rectangle RecurrentTransactionHandler
+rectangle TradeHandler
+rectangle TransferHandler
+
+AbsHandler --> AbsTransactionHandler
+AbsHandler --> RecurrentTransactionHandler
+AbsTransactionHandler --> AbsTransferHandler
+AbsTransactionHandler --> IncomeExpensesHandler
+AbsTransferHandler --> BudgetTransferHandler
+AbsTransferHandler --> TransferHandler
+IncomeExpensesHandler --> LinkedIncomeExpensesHandler
+IncomeExpensesHandler --> TradeHandler
+
+@enduml
+....
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+rectangle TenantHandler
+rectangle RealEstateHandler
+rectangle GiroHandler
+rectangle BudgetHandler
+rectangle EquityHandler
+rectangle DepotHandler
+rectangle CurrencyHandler
+rectangle BudgetPortfolioHandler
+rectangle BudgetGroupHandler
+rectangle AccountPortfolioHandler
+rectangle AbsCashInstrumentHandler
+rectangle AbsAccountableInstrumentHandler
+rectangle AbsCashInstrumentHandler
+rectangle BaseAccountableInstrumentHandlerImpl
+rectangle AbsInstrumentHandlerWithProperty
+rectangle SecurityHandler
+rectangle AbsInstrumentHandler
+rectangle BaseSecurityHandler
+rectangle InstrumentHandler
+rectangle AccountableInstrumentHandler
+
+AbsCashInstrumentHandler --> GiroHandler
+AbsCashInstrumentHandler --> BudgetHandler
+AbsAccountableInstrumentHandler --> AbsCashInstrumentHandler
+AbsAccountableInstrumentHandler --> AccountPortfolioHandler
+AbsAccountableInstrumentHandler --> BaseAccountableInstrumentHandlerImpl
+AbsAccountableInstrumentHandler --> BudgetGroupHandler
+AbsAccountableInstrumentHandler --> BudgetPortfolioHandler
+AbsAccountableInstrumentHandler --> DepotHandler
+AbsAccountableInstrumentHandler --> RealEstateHandler
+AbsAccountableInstrumentHandler --> TenantHandler
+AbsInstrumentHandlerWithProperty --> AbsAccountableInstrumentHandler
+AbsInstrumentHandlerWithProperty --> SecurityHandler
+SecurityHandler --> BaseSecurityHandler
+SecurityHandler --> EquityHandler
+SecurityHandler --> CurrencyHandler
+AbsInstrumentHandler --> AbsInstrumentHandlerWithProperty
+InstrumentHandler --> AbsInstrumentHandlerWithProperty
+AccountableInstrumentHandler --> AbsAccountableInstrumentHandler
+
+
+@enduml
+....
+
+= Instrument Relations
+
+== InstrumentProperty vs InstrumentGraph for InstrumentLinks
+
+ 1 to 1 Relations between Instruments like INCOMEBUDGET, Default-Budgets or REALESTATEBUDGETGROUP are more efficient implemented in Instrumentproperties, becaus thare are 1 instead of 3 rows needed.
+ For Trees (Tenant-Graph) or 1 to n Releations (Valuebudget) the InstrumentGraph-Solution is much better. Otherwise all Properties have to be scanned for informations.
+
+== InstrumentGraph
+ 
+Implemented as directed grpah with a closure table.
+
+Most of the time update and delete makes no sense in the table because all releations are allways valid. The means if you delete an Instrument from the tenant-tree it looks like it has never existed.
+
+If you want to delete an instrument you have to invalidate the instrument not the releation in the tree. If you want to move an instrument in the tree. you have to invalidate the instrument an create a new one. This sounds complicated but it should nearly never occure.
+
+A better usecase for an update is the valuebudget. You have to be careful because you can never change this. May be it is better to set on valuebudget per tenant and liquidity-class (one for depot, realestate and other long therms and one for deprecation objects like a car as mid-therms), but this is not implemented yet. Another solution is the delete and recreate of the instrument with another valuebudget, but this cost a lot of effort. We will see if and what we need.
+
+= coding conventions for Angular
+
+== module vs component vs view
+
+A module in Angular is something which is made from components, directives, services etc.
+One or many modules combine to make an Application. ...
+Components in Angular are classes where you write your logic for the page you want to display. Components control the view (html).
+
+Modules consist of one or more components. They do not control any html. Your modules declare which components can be used by components belonging to other modules, which classes will be injected by the dependency injector and which component gets bootstrapped. Modules allow you to manage your components to bring modularity to your app.
+
+A view is a component in angular, but it is more or less just a composition or configuration of other components and has no logic by himself
+
+== package.json
+
+^4.15.2 is equal to >= 4.15.2 < 5.0.0
+the version which is used is locked in package-lock.json
+but if you delete the  package-lock.json it is unpredictable which version you get and if everthing is working then
+
+== Widget vs Dashboard
+
+In a dashboard a more then one widget action at the same time. So it is difficult to handle widget status like isLoading in a global generic widgetService. You have to save the stutus for each widget individual
+Due to interaction between widgets it is better anyway to save status and manage data loading in the dashboard.

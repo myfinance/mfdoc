@@ -1,0 +1,614 @@
+include::header.adoc[]
+
+= Instrumente
+
+Jede Entität die einen Wert hat wird in MF als Instrument abgebildet. Somit z.B: auch Accounts, Wertpaiere, Portfolien...
+
+Instrument wird als eigene Datenbanktabelle abgebildet, die alle Properties beinhaltet die von jedem Instrumenttyp benötigt werden:
+
+[cols=",",]
+|=====================================================================================
+|*Typ* |*Beschreibung*
+|Description |Der Fachliche Schlüssel
+|isActive | einfaches Flag das anzeigt dass das Instrument ausgeblendet werden kann (ausser bei historischen betrachtungen) da sein ClosingDate überschritten wurde -> nur für einfachere Queries nötig (besser als Date vergleich)
+|closingDate | Tag an dem der Account/dasInstrument Tatsächlich abgeschlossen wurde (kann abweichen von MaturityDate: z.b. ein Kredit endet an Tag x das kreditkonto wird aber erst ein paar tage später geschlossen)
+|MaturityDate | geplanter Ablaufzeitpunkt
+|TreeLastChanged | TimeStamp an dem zu erkennen ist wann sich zuletzt etwas an dem Instrument oder damit verbundenen Entitäten(z.b.Cashflow) geändert hat, so dass die Wertkurve neu gerechnet werden muss
+|BusinessKey | ein zusätzlicher Fachlicher Schlüssel zur besseren Identifizierung z.B. ISIN bei Equity CurrencyCode oder IBAN bei Giro
+|=====================================================================================
+
+
+Da diese Tabelle eine reine Dimension ohne Fakten ist wurde auf validFrom und ValidUntil verzichtet. Alle Instrumente existieren nur einmal und für immer(Die Tabelle beinhaltet keine veränderlichen Felder)
+Unveränderlich meint in dem Context nicht dass sie nicht verändert werden dürfen wenn man versehentlich den falschen wert eingetragen hat sondern dass die Werte sich in der Realität nicht ändern. Der closingDate ist fix auch wenn ich mich vertippt habe und der wert nochmal ändern muss.
+
+Dass kein Cashflow... nach dem closingDate standfindet wird von der Anwendung sichergestellt
+
+Zusätzliche Informationen für einzelne Instrumenttypen sollen, solange sie nicht für SQL-Auswertungen benötigt werden,
+generisch in einer Key-Value-Tabelle InstrumentProperties abgebildet werden.
+
+== warum ist der BusinessKey nicht der PrimaryKey
+
+Ein Primarykey muss unique sein. Bei einem Bausparvertrag z.b. steht im Businesskey die gleiche Vertragsnummer wie bei dem entsprechenden Bausparkonto und dem Darlehen.
+So können die einzelnen Teile auch schneller selektiert werden. um denoch unique zu sein wird ein Prefix benötigt.
+Der BusinessKey hat für die meisten Instrumenttypen ausser für Currency(currencyCode) nur eine Beschreibende Bedeutung(ISIN zur leichteren Suche, IBAN, Shortdesc)
+und ist nicht wirklich besser zu merken als eine ID
+Dazu ist der Businesskey als VarChar viel länger und benötigt mehr speicher als ein Int.
+Das größte Hinderniss ist aber dass nicht für alle InstrumetnTypen ein sprechender varcahr - businesskey erzeugt werden kann, der Garantiert frei von Sonderzeichen, eindeutig und unveränderlich ist.
+Bei Budgets z.B. gibt es nur die Description. Durch Validierung kann man zwar sicherstellen, dass es Eindeutig ist, kurz und Sonderzeichenfrei, dadurch wird der Key aber wiederum kryptisch so dass er auch besser wieder als int generiert wird.
+auch kann sich bei budgets die bezeichnung ändern, der Key muss aber gleich bleiben.
+
+Im Prizip ist die ID dem Businesskey in jedem Punkt überlegen, ausser bei currencies. Verwende ich hier eine ID muss ich jede tabelle erst mit instrument joinen um an den currencycode zu kommen.
+auch muss dann die Eindeutigkeit des currencycodes noch sichergestellt werden. Dies wird durch ein Unique-Constraint auf dem BusinessKey erreicht
+(Businesskey ist Nullable da er z.B. bei Budgets keinen Mehrwert liefert. Null-Werte werden nie als gleich behandelt)
+
+== Liquidität
+
+Jedes Instrument hat einen LiquidityType, der beschreibt wie schnell man es verkaufen kann ohne zusätzliche Kosten bzw. ob man jeder Zeit Geld Transferieren kann.
+Bei den meisten Instrumenten kann man den LiquidityType implizit am InstrumentType(z.b. Giro=Liquide) oder an der Maturity festmachen, so dass der Type nicht explizit in der DB stehen muss. 
+Bei manchen Instrumenttypen wie dem TimeDeposit hängt der LiquidityType an der Maturity und muss entsprechend je Konto berechnet werden. Dadurch können Konten nicht fest einem LiquidityType zugeordnet werden.
+
+
+*LiquidityType-tabelle*
+
+[cols=",",]
+|=====================================================================================
+|*Typ* | *Beschreibung*
+| Liquide | jeder Zeit auflösbar
+| ShortTerm | bis zu 3 Monate
+| MidTerm | bis zu einem Jahr
+| LongTerm | länger als ein Jahr
+|=====================================================================================
+
+Der LiquidityType soll dazu benutzt werden eine Liquiditätsablaufbilanz(LAB) zu erstellen um potentielle Liquiditätsengpässe zu identifizieren
+
+== Konten und Budgets
+
+Auch wenn Konten und Budget beide als Instrument abgebildet sind, gibt es einen wesentlichen fachlichen Unterschied:
+Die Konten stellen in der Summe die reale Vermögensverteilung dar, während Budgets virtuell sind und der Ausgabenplanung dienen.
+Die Summe aller Konten muss muss gleich der Summe alle Budgets sein. Für Budgets gibt es einen extra Instrumenttyp.
+Accounts können mehrere Instrumenttypen haben. Im wesentlich sind dies alle Typen bis auf Budgets, BudgetGroups, Securities und Portfolien.
+Bei den Portfolien gibt es zwei Ausnahmen. Zu einen das Depot, da Position immer aus den Trades berechnet werden und nicht in der DB abgelegt werden, hänge alle Realen Werte von Positionen am Depot.
+Eine weitere Ausnahme ist der Bausparvertrag. Dieser ist zwar kein Account im eigentlichen Sinn da er aber aus zwei accounts besteht und im <<Tenant>> unter Accounts geführt werden soll wird als Account behandelt
+Was als Account behandelt wird, d.h. im instrumenttree des Tenant unter Accounts geführt wird, ist nicht in der DB festgehalten DIe Logik liegt im Code
+
+== Beziehungen zwischen Instrumenten
+
+Beziehungen zwischen Tabellen werden in der closure Table instrumentGraph als gerichteter Graph abgebildet.
+Es gibt verschiedene Arten von Beziehungen die über den Edgetype abgebildet werden:
+
+ * Value-Budgets: Einem Budget werden ein oder mehrer Konten zugewiesen <<verlinkte Budget>>. Jeder Account darf nur einmal mit diesem Edgetype vorkommen
+ * Custom: hier sollen die beziehungen von artificial Portfolien und deviersen Accounts und Positionen abegildet werden (Soll noch nicht umgesetzt werden)
+ * Tenant-Graph: Abbildung des realen und virtuellen Vermögens eines Mandanten <<Tenant>>
+ * RealEstateBudgetGroup: An jede Immobilie wird eine BudgetGroup gehängt über die die budgetierung erfolgt (besser als InstrumentProperty siehe DVK)
+ * incomeBudget: Einer BudgetGroup(ancestor) kann genau ein incomeBudget zugewiesen werden. Wird verwendet als StandardBudget zur Verbuchung von regelmäßigen Einnahmen z.B. Loan (besser als InstrumentProperty siehe DVK)
+
+Tenent-Graph:
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+rectangle Tenant
+rectangle AccountPortfolio
+rectangle BudgetPortfolio
+rectangle BudgetGroup
+rectangle Budget1
+rectangle Budget2
+rectangle Budget3
+rectangle Budget4
+rectangle Depot1
+rectangle Giro
+rectangle Bausparvertrag
+rectangle Bausparkonto
+rectangle Bauspardarlehen
+rectangle Haus
+rectangle HausBudgetGroup
+
+Tenant --> BudgetPortfolio
+Tenant --> AccountPortfolio
+BudgetPortfolio --> BudgetGroup
+BudgetPortfolio --> HausBudgetGroup
+BudgetGroup --> Budget1
+BudgetGroup --> Budget2
+AccountPortfolio --> Depot1
+AccountPortfolio --> Giro
+AccountPortfolio --> Bausparvertrag
+Bausparvertrag --> Bausparkonto
+Bausparvertrag --> Bauspardarlehen
+AccountPortfolio --> Haus
+HausBudgetGroup --> Budget3
+HausBudgetGroup --> Budget4
+
+@enduml
+....
+
+RealEstateBudgetGroup:
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+rectangle Haus
+rectangle HausBudgetGroup
+
+Haus --> HausBudgetGroup
+
+@enduml
+....
+
+IncomeBudget:
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+rectangle BudgetGroup
+rectangle IncomeBudget
+
+BudgetGroup --> IncomeBudget
+
+@enduml
+....
+
+Jedes Budget darf für diesen Edgetype nur einer BudgetGroup, eine BudgetGroup nur einem BudgetGroupPortfolio, dieser nur einem Tenant zugeordnet sein.
+Jeder Account darf nur einem AccountPortfolio und einem Tenant zugeordnet sein
+
+== Transactions und Cashflows
+
+Es gibt verschiedene Typen von Cashflows:
+
+=== Transfers
+
+Unter Transfers versteht man Cashflows die von einem Instrument zu einem anderen fliessen, also von einem Budget A zu einem Budget B oder von einem Konto C zu einem KontoD.
+Es fliesst niemals ein Cashflow von einem Budget zu einem Konto oder umgekehrt.
+
+Beide instrumente muessen dabei immer zum selben Tenant gehören, da sonst für den Tenant nicht mehr gilt Summe der Konten gleich Summe der Budgets
+
+=== Einnahmen und Ausgaben
+
+Hier fliesst Geld aus einem Vermögen ab oder zu. Für eine Ausgabe gibt es z.B. nur einen Cashflow von Konto A aber keinen zu einem anderen Konto hin.
+Dafür existiert bei einer Ausgabe bzw Einnahme für jeden Cashflow auf einem Konto auch ein Cashflow auf einem Budget in gleicher Höe mit gleichem Vorzeichen.
+
+Beide instrumente muessen dabei immer zum selben Tenant gehören, da sonst für den Tenant nicht mehr gilt Summe der Konten gleich Summe der Budgets
+
+=== Dividenden
+
+Bei einer Dividende gibt es drei cashflows: einen Eingang auf einem Giro, ein Cashflow auf einem Budget und einer auf dem Wertpapier.
+Bei dem Wertpapieren ändert das aber nichts am Wert da im Gegensatz zum Giro der Wert sich nicht aus der Summe der Cashflows ergibt, sondern gleich dem markwert bzw einem berechneten Wert (bei Bonds) ist(hier kann der cashflow natürlich eingehen).
+bei Zinsen bzw Gebühren kann das ähnlich sein: bei einem Depot gibt es auch 3 Cashflows: auf dem Giro wo der Betrag abgezogen wird, auf einem Budget und im Depot wo er nicht in den wert eingeht (wert = wert der securities) aber für analyse herangezogen werden kann(Depotertrag abzüglich gebühren)
+
+=== Trades
+
+Trades werden abgebildet wie Einnahmen bzw Ausgaben allerdings werden zusätzliche Informationen in einer extra Tabelle Trade gespeichert:
+Ammount, security und depot
+
+=== Abbildung von Cashflows
+
+Für jede Transaktion(Einnahme, Ausgabe bzw. Transfer) gibt es immer zwei Cashflows, d.h. je einer auf jedem der beteiligten Instrumente
+Die Zusammengehörigkeit von Cashflows wird in der Tabelle Transactions abgebildet.
+
+
+
+Auf eine Historisisierung in der Tabelle wird verzichtet da sie bisher nur benötigt wurde wenn Daten versehentlich gelöscht oder verändert wurden und dies auch nur selten.
+Stattdessen sollen edit und delete für alle tabellen in einer message-tabelle protokolliert werden.
+Inserts sollten ggf auch dort protokolliert werden damit der user festgehalten wird der das insert vorgenommen hat(ist aber kaum relevant sollange nur einer die Daten pflegt -> konfigurierbar machen)
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+Transaction "1" *--  "many" Cashflow
+
+Transaction : Int TransactionId
+Transaction : String Description
+Transaction : Date TransactionDate
+Transaction : Int TransactionTypeId
+
+Cashflow : Int CashflowId
+Cashflow : Int TransactionId
+Cashflow : Int InstrumentId
+Cashflow : Double Value
+
+@enduml
+....
+
+=== Wiederkehrende Cashflows
+
+Wiederkehrende Cashflowswerden in einer Tabelle Konfiguriert.
+Eine hostorisierung  wird nicht benötigt da nur die tatsächlich stattgefundenen Transfers relevant sind
+Wiederkehrende Einnahmen sollen in der Regel zunächst auf ein zentrales Budget laufen von dem sie dann weiterverteilt werden, das IncomeBudget(siehe Beziehung von Instrumenten).
+Dies wird erzwungen da sonst keine konsistente, vollständige Gegenüberstellung von allen Einnahmen und deren Verteilung auf die einzelbudgets möglich ist.
+Auch sind aktuell keine anderen UseCases bekannt bzw kann dies im Zweifel über einen anderen recurrencytype abgebildet werden.
+Gleiches gilt für BudgetTransfers. Hier soll das Quellbudget immer das IncomeBudget sein.
+Sollten dennoch andere UseCases auftreten, muss man auch andere Budgets zulassen und das incomebudget als default in den Eingabemasken setzen.
+Dabei muss klar sein, dass diese dann nicht in die Gegenüberstellung von Einnahmen und deren BudgetVerteilung eingehen. Evtl. kann dies dann auch als extra recurrencytype abgebildet werden um dies klarer zu machen.
+
+
+[plantuml]
+....
+@startuml
+!pragma graphviz_dot jdot
+skinparam componentStyle uml2
+
+recurrenttransaction : Int RecurrenttransactionId
+recurrenttransaction : Int recurrencytype
+recurrenttransaction : String Description
+recurrenttransaction : Date nexttransaction
+recurrenttransaction : Double value
+recurrenttransaction : Int recurrentfrequence
+recurrenttransaction : Int instrumentid1
+recurrenttransaction : Int instrumentid2
+recurrenttransaction : Int securityid
+
+@enduml
+....
+
+
+recurrentfrequence= Monthly, Quaterly, Yearly in der DB aber nur als id abgebildet, so dass die Software ohne DB-Änderungen erweitert werden kann
+recurrencytype= Einnahme, Ausgabe, BudgetTransfer oder Transfer -> wie recurrentfrequence nur als ID abgebildet. Benötigt um zu wissen ob auf den Instrumenten jeweils ein positiver oder negativer cashflow fliesst bzw. welche Instrumenttypen zugelassen sind.
+Die SecurityId ist optional für den Fall, dass ein Coupon oder andere Zahlungen auf Securities abgebildet werden sollen
+
+
+== Instrumenttypen
+
+Folgende Instrumenttypen gibt es:
+
+*Instrumenttyp-tabelle*
+
+[cols=",,",]
+|=====================================================================================
+|*Typ* | *Typgruppe* | *Beschreibung*
+|Giro| CashAccount | Girokonto
+|MoneyAtCall| CashAccount | Tagesgeld
+|TimeDeposit| CashAccount | Festgeld
+|BuildingsavingAccount| CashAccount | Bausparkonto
+|Budget| CashAccount | Budget. Ähnlich wie Giro aber virtuell
+|tenant |portfolio | Ein Mandant
+|AccountPortfolio |portfolio | Ein Portfolio mit allen Accounts eines Mandanten
+|artificialPortfolio |portfolio | künstliche Zusammenfassungen von mehreren instrumenten. entsprechenden auch Portfolio von Portfolios möglich.
+|BudgetGroup |portfolio | Zusammenfassung von Budgets
+|Depot |portfolio | Zusammenfassung von Positionen und somit Securities
+|Buildingsaving |portfolio | Zusammenfassung von BuildingsavingAccount und einen Loan
+|Currency| security |Währungen
+|Equity| security | Aktien
+|Fonds| security | Fonds Zusammenfassung von Wertpapieren die als ganzes gehandelt wird
+|ETF| security |Exchange Traded fond
+|Index| security |Index wie z.b. Dax -> obsolet da durch ETF abgebildet
+|Bond| security |Anleihen
+|Position| portfolio |Zusammenfassung von Securities
+|LifeInsurance |LifeInsurance | Lebensversicherung
+|DepreciationObject |DepreciationObject | Abschreibungsobjekte wie z.b. Autos
+|RealEstate |RealEstate | Immobilien
+|Loan |Loan | Kredite bei Banken oder man ist selbst Gläubiger wie z.b. von Kapilendo
+|=====================================================================================
+
+=== CashAccount
+
+Die Gemeinsamkeit von allen CashAccounts ist, dass sich ihr Wert durch die Summe aller Transaktionen(Einzahlungen, Auszahlungen) ergibt.
+
+
+==== Giro
+
+Auf einen Girokonto können Einnahmen und Ausgaben sowie Transfers von bzw. zu anderen Konten stattfinden.
+Der LiquidityType ist immer Liquid.
+
+BusinessKey=IBAN
+
+
+==== MoneyAtCall
+
+Tagesgeld. Im Gegensatz zu Giro können hier nur Transfers aber keinen Einnahmen und Ausgaben verbucht werden.
+Da aber Zinsen bzw Zinskorrekturen verbucht werden müssen führt dies zu keiner harten Einschränkung
+Auf dem Konto gilt ein Zinssatz für eine bestimmte Periode.
+Die zu zahlenden Zinsen an definierten Zahltagen können berechnet und automatisch verbucht werden.
+So muss meist nur ein mal Jährlich eine kleine korrekturbuchung vorgenommen werden um ggf Abweichungen auszugleichen
+[NOTE]
+die Automatische Zinsberechnung wird zunächst nicht umgesetzt da die Zinsen zu volatil sind und es einfaches ist einmalig im Jahr alle Zinsen nachzutragen
+
+Der LiquidityType ist immer Liquid.
+
+
+BusinessKey=IBAN
+
+additional properties:
+
+* Zinssatz mit Gültigkeit (Stichtag_von, Stichtag_bis) zur Berchnung von Zinszahlungen -> erst wenn Automatische Zinsberechnung umgesetzt wird
+
+==== TimeDeposit
+
+festgeld. Wie Tagesgeld. Transfers finden aber nur am Anfang und am Ende der Laufzeit statt.
+
+Der LiquidityType wird anhand der Maturity berechnet.
+
+Für Zinszahlungen gilt auch das gleichen wie für das Tagesgeld nur das der Zinssatz sich nicht ändert
+
+
+BusinessKey=IBAN
+
+==== BuildingsavingAccount
+
+Bausparkonto wie Tagesgeld. Es sind aber nur Eingangstransfers möglich. Ausgehende Transfers nur bei Auflösung
+
+Der LiquidityType ist immer MidTerm, da man das Bausparkonto innerhalb von 3 Monatgen auflösen kann und nur den Anspruch auf das Darlehen verliert.
+Das Darlehen ist aber nicht immer sinnvoll weshalb es nicht berücksichtigt wird.
+
+Das Bausparkonto wird immer zusammen mit den Bausparvertrag angelegt
+
+BusinessKey=Vertragsnummer
+
+==== Budget
+
+Ähnlich wie giro aber virtuell
+
+Der LiquidityType ist im Default Liquide, aber es kann Budgets geben die für z.b. Jährliche Ausgabe vorgesehen sind.
+Hier muss der LiquidityType extra angegeben werden. Dazu ist in den InstrumentProperties LiquidityType zu hinterlegen
+Es ist auch möglich, dass ein Budget mit einem anderen Instrument verknüft ist (z.B. DeprecationObject) dann wird der LiquidityType davon abgeleitet
+
+===== besondere Budgets
+
+ * Income: wird für jeden Tenant automatisch angelegt. Hier gehen alle regelmäßigen Einnahmen ein.
+Wie hoch das Regeleinkommen eines Tenant pro Monat ist kann auch ohne Income-budget ermittelt werden, indem die wiederkehrenden Einnahmen aller budgets des Tenant addiert werden.
+Diese Ermittlung ist aber etwas aufwändiger
+ * OneTimeIncome: Ein Budget um Einmal-Einnahmen zu verbuchen. Dieses Budget wir nicht automatisch angelegt und es hat sich auch nicht als praktikabel erwiesen es zu verwenden,
+ da die meisten Einnahmen etweder sowieso zweckgebunden sind(von der Oma für die Enkel...) oder sonstige Einnahmen wie Bonus oder Mehrarbeit sowieso auf die Reserve oder für Einmalanschaffungen verbucht werden.
+ Somit ist der Zwang Einnahmen auf ein bestimmtes Budget zu buchen nur mit mehraufwand verbunden ohne Vorteile
+ will man die Gesamteinahmen wissen (auch wenn dies durch sondereffekte sellten interessant ist)kann man auch alle Einnahmen über alle Budgets des Tenants betrachten
+
+Die Verbuchung von Einnahmen auf ein bestimmtes Budget(Income) wird nur bei Regeleinnahmen erzwungen, da diese anschliessend vollständig auf die übrigen Budgets verteilt werden sollen
+
+===== verlinkte Budget
+
+der Wert mancher Accounts hängt am Marktwert oder anderen Faktoren. Damit dieser Wert in die Budgetierung eingeht muss er einem Budget zugewiesen werden.
+Der Wert dieses Budgets berechnet sich dann aus dem Wert der verlinkten Accounts zzgl. der Cashflows die am Budget selbst hängen.
+
+es ist z.b. Sinnvoll ein Rentenbudget zu haben. Dem sollte der wert von allen immobilien zzgl krediten, LV und Depot sein.
+wobei das Depot aber nicht wirklich langfristig ist. Entsprechend sollte man es vielleicht eher einem anderen budget zu zaehlen.
+
+
+
+=== Portfolio
+
+Ein Portfolio beinhaltet ein oder mehrere Instrumente. Dies dient der Abbildung von Depots und Baussparverträgen, sowie diversen virtuellen zusammenfassungen von Instrumenten zur Analyse
+
+Der LiquidityType, wenn überhaupt benötigt, ergibt sich aus dem langfristigsten Wert der beinhalteten Instrumente
+
+BusinessKey= a short description without spaces, all lower case
+
+==== Tenant
+
+Ein Tenant ist ein Mandant. Ein Mandant ist der zentrale Aufhängungspunkt im Accounting an dem alle realen und Virtuellen Werte eines Haushalts hängen.
+Ein Tenant ist als spezielles Portfolio abgebildet
+Das Tenant-Portfolio wiederum beinhaltet ein BudgetGroupPortfio und ein Account-Portfolio.
+Die wie der Name sagt Budget-Gruppen oder Konten beinhalten.
+Die Werte dieser beiden Portfolien müssen gleich sein siehe <<Konten und Budgets>>.
+In den einzelnen BudgetGroupPortfolios befinden sich dann die einzelnen Budgets.
+Weitere Unterteilungen sind denkbar(z.b. nach Liquidität oder InstrumentType) passieren aber nicht in der Datenbank sondern nur in Memory
+
+
+==== AccountPortfolio
+
+beinhaltet alle Accounts eines Mandanten. Sonst wie BudgetGroupPortfolio
+
+
+==== artificialPortfolio
+
+künstliche Zusammenfassungen von mehreren instrumenten. entsprechenden auch Portfolio von Portfolios möglich.
+Nur für Analysen gedacht.
+
+
+==== BudgetGroup
+
+zusammenfassung von mehreren Budgets. z.b. für Immobilien benötigt
+
+
+==== Depot
+
+hier werden diverse Trades verlinkt um Positionen zu bilden die sich in einem Depot-Account befinden.
+Somit ist das Depot nur indirekt ein Portfolio. Es besteht zwar aus Securities aber nur über Positionen die nicht in der Datenbank abgebildet sind
+
+BusinessKey=IBAN
+
+==== Buildingsaving
+
+Ein Bausparvertrag besteht aus dem Cashaccount vom Typ Bausparkonto und ggf aus einen Bausparkredit (Loan)
+Die liquidität berechnet sich aus der kreditlaufzeit oder ist midterm falls kein kredit sondern ein ein aktives bausparkonto existiert
+
+
+=== Securities
+
+Wertpapiere wie Aktien, Anleihen und Währungen die einen Marktpreis haben den man von externen Quellen auf Tagesbasis importieren kann.-
+[NOTE]
+Bei Anleihen ist noch zu prüfen woher man Marktpreise bekommt oder ob der Preis berechnet werden muss.
+
+Die Währung in der eine Security notiert muss eindeutig hinterlegt sein. Diese Währung ist unabhängig von der WÄhrung in der die Marktpresie geliefert werden.
+Dies ist die Währung in der das Wertpapier im Depot liegt und daran hängt ob ein Währungsrisiko besteht oder nicht.
+Die Währung der Position hängt ebenfalls davon ab
+
+
+==== SecuritySymbol und Preisimporte
+
+Für den Import von Tagespreisen wird meist ein sogenanntes Symbol benötigt. Dies ist nicht eindeutig je Instrument sondern je Instrument und Börse.
+Entsprechend können die Preise für jedes Symbol in einer anderen Währung geliefert werden.
+
+Es wurde überlegt das Symbol in einer generischen Tabelle als Instrumenteigenschaft abzulegen. Dies wurde aber verworfen:
+Zum Einen ist so kein Constraint auf die Währung möglich zum anderen ist das Symbol eher als eine Price-Order und somit als eigene Entität zu verstehen anstatt als InstrumentEigenschaft
+
+
+==== Currency
+
+Währungen haben nur einen Marktpreis. Auf Währungen gibt es keine direkten Positionen. Positionen von Aktien oder Anleihen können aber in einer bestimmten Währung sein
+
+BusinessKey=CurrencyCode
+
+
+==== Equity
+
+Standard Aktien die Jährliche und quartärliche Dividenten zahlen und einen Marktpreis in einer Währung haben.
+Die Höhe der Dividente ist dynamisch muss also Import oder manuell eingegeben werden
+
+Der LiquidityType ist MidTerm.
+
+BusinessKey=ISIN
+
+==== Fonds
+
+Fonds Zusammenfassung von Wertpapieren die als ganzes gehandelt wird. Es gibt einen Martpreis wenn auch ggf von anderen Quellen
+und verhält sich ähnlich der Equity. Diventen werden aber in der Regel nicht ausgeschüttet sondern wieder angelegt
+
+==== ETF
+
+Exchange Traded fond. Verhält sich wie Fond. Es handhabung von Dividenten kann aber unterschiedlich sein
+Statt der Wiederanlage wird der wert erhöht.(sonst wird der ETF einfach als Fond abgebildet)
+
+Der LiquidityType ist MidTerm.
+
+==== Index
+
+Auf einem Index existieren keine Positionen. Ein Index wie z.b. der Dax wird nur benötigt für Performancevergeliche und Analysen
+Es ist unklar ob es Quellen für den Martwert gibt. Es existieren aber ETFs für jeden Index. Somit ist dieser Typ ggf. obsolet
+
+==== Bonds
+
+Anleihen, daher Wertpaieren mit Laufzeit und Regelmäßigen CouponZahlungen. Die Coupons sind fix bei kauf.
+(floater sind auch denkbar werden dann aber als extra typ abgebildet)
+
+Der LiquidityType ist MidTerm, es sei denn die Maturity ist kurzfristiger.
+
+additional properties:
+
+* coupon
+* firstCouponDate
+* couponFrequency
+
+=== Position
+
+Positionen stellen eine Menge von einzelnen Securities dar. In welcher Währung eine Position ist hängt an dem darunter liegenden Instrument
+Die Positionen können jeder Zeit aus den Trades ermittelt werden. Somit müssen sie nicht in der Datenbank abgelegt werden.
+
+Der LiquidityType hängt am InstrumentType
+
+
+=== LifeInsurance
+
+Lebensversicherungen besitzen zwar wie CashAccount Cashflows, daraus bestimmt sich aber nicht der Wert.
+Der Wert wird von der Versicherungsgesellschaft ermittelt und Jährlich bekanntgegeben.
+Eigentlich werden mehrere Werte angegeben. Der Rückkauswert ist das Minimum was man erhält wenn man sofort der Vertrag kündigt.
+Der garantierte Wert ist das was man bei Einstellung der Zahlung Mindestens bekommt ...
+
+Der LiquidityType berechnet sich aus der Maturity
+
+additional properties:
+
+ * SurrenderValue für einen Zeitpunkt(validFrom): Der Rückkaufswert der LV
+
+
+=== RealEstate
+
+Immobilen werden getrennt von ihren krediten betrachtet
+Der wert ergibt sich aus dem monatlichen Betrag den man jeweils meint herausnehmen zu können (z.B. tilgung zinsen + überschuss) auf das jahr hochgerechnet und mit zielrendite dann den wert berechnen
+fuer die ermittlung der ueberschuesse gibt es zwei varianten, entweder werden die ueberschuesse fix definiert(RealEstateProfit) fur einen zeitraum(wie auch die zielrendite YieldGoal)
+oder sie werden berechnet als mittel der transfers zu anderen budgetgruppen z.b. der letzten 12 monate. dieser zeitraum sollte parametrisierbar sein, ebenso ob die ueberschuesse berechnet oder fix sind. Die Moeglichkeit der fixen Angabe ist vorallem in der Anfangsphase noetig wenn noch nicht hinreichend viele Daten vorhanden sind.
+Die fixen ueberschuessen sind dabei nur grundlage der wertberechnung und muessen nicht identisch mit den tatsaechlichen leistungen des hauses an den mandenten uebereinstimmen. sie stellen vielmehr einen mittelwert der realen leistungen dar.
+Die dynamische Berechnung der Überschüsse ist starken schwankungen ausgesetzt weshalb dies zunächst nicht umgesetzt wird.
+
+Wie oben angedeutet besitz jede Immobilie eine eigene BudgetGruppe. Dies ist so damit zur Verwaltung einer Immobilie extra Budgets angelegt werden können
+z.B. für regelmäßige Wartungskosten etc.
+
+Hauseinnahmen fuellen Hausbudget. Dies gilt auch fuer das Eigenheim. Hier ist die Einnahme die virtuale Miete des Mandanten an sich selbst. Dabei ist zu beachten das die Miete an sich selbst durch eine ausgabe auf einem nicht hausbudget und einer einnahme auf dem haus abgebildet wird. Dies deckt hier anfangs aber nur Zinsen. Die Tilgung sollte wieder ueber einen Kredit an sich selbst abgebildet werden.
+
+wertsteigernde investitionen werden durch ausgaben auf budgets ausserhalb der hausbudgetgruppe dargestellt(aehnlich wie trade). Der Hauswert sollte sich entsprechend steigern durch erhoehten ertrag. Ggf muss noch ein link zu der investition hergestellt werden
+
+Wertsteigernde Investitionen werden wie der initiale Kaufpreis als Ausgabe auf der common budgetgroup abgebildet mit einem link(refaccount) zu der immobilie
+
+Der LiquidityType ist LongTerm
+
+Der Berechnete Wert muss einem valueBudget zugewiesen werden <<Beziehungen zwischen Instrumenten>>
+
+additional properties:
+
+ * YieldGoal in einem Zeitraum(validFrom, ValidTo): DIe zielrendite in einem Zeitraum
+ * RealEstateProfit in einem Zeitraum(validFrom, ValidTo): Wird der monatl. Gewinn der Immobilie nicht berechnet muss er grob geschätzt und hier hinterlegt werden
+ * BudgetGroup
+ * Optional CalculateProfit: Default=no Es ist möglich anhand von Cashflows zu ermitteln wie hoch der Profit ist.
+ Dies ist aber starken schwankungen ausgesetzt weshalb dies zunächst nicht umgesetzt wird
+ * Optional periodForCalcInMonth: Anzahl der Monate die für die Berechnung des Profits herangezogen werden. Nicht verwendet da die Berechnung nicht umgesetzt wurde
+
+ Das Kaufdatum (AcquisitionDate) muss nicht extra gespeichert werden. Es ist immer das älteste ValidFrom von YieldGoal bzw RealEstateProfit. Dies muss bei beiden gleich sein. Ist das nicht der Fall wird der andere Wert als 0 angenommen.
+ Der Kaufpreis einer Immobilie ist als LinkedTransaction abgebildet - daher eine Ausgabe mit zusätzlichem Cashflow auf der Immobilie. Da hier ein Kauf in mehreren Tranchen möglich ist müssen die Transaktionen extra eingegeben werden.
+ Es ist dabei möglich dass das Transaktionsdatum vor dem Kaufdatum liegt, da während der bauphase noch kein Eigentum übergegangen ist. Die Immobilien muss dabei im System aber bereits angelegt sein (mit Wert 0)
+
+ Beim Verkauf werden alle Werte der Budgets aus der haus_budget_group in das income-budget der default budget-group geschoben und inaktiviert. Die Verkaufstransaktion wird extra als Linked_Transaction abgebildet wie die Kauf-Transaktion
+ Achtung: bis MYF-466 umgesetzt ist müssen alle Budgets manuell auf Wert 0 gebracht werden. Inaktiviert werden sie automatisch
+
+=== DepreciationObject
+
+Abschreibungsobjekt. Große Konsumausgaben wie z.B: Autos die noch über einige Jahre einen Wiederverkaufswert besitzen werden über einen größeren Zeitraum abgeschrieben.
+So werden auch größere Sprünge in der Gesamtbesitzkurve vermieden
+
+
+Bei Anlage des DepreciationObject wird eine Ausgabe auf einem Giro mit einem Budget durchgeführt(ganz normale Ausgabe)
+Die Höhe entsprecht dem initialvalue.
+Das Transactiondate wird sich im AcquisitionDate gemerkt.
+Im folgenden wird der Wert des DepreciationObject berechnet in dem der initiale Wert vom AcquisitionDate bis zu Maturity linear(je nach deprecationType) bis auf 0 gesenkt wird.
+Damit sich die Abschreibung auch in der Budgetsicht wiederspiegelt muss der Wert einem valueBudget zugewiesen werden <<Beziehungen zwischen Instrumenten>>
+
+
+
+Der LiquidityType ist MidTerm da Autos etc auch verkauft werden können innerhalb eines Jahres
+
+additional properties:
+
+ * transactionid: Die Id der initialen Ausgabe. Dient nur als Zusatzinfo.
+ * AcquisitionDate: entspricht dem TransactionDate der Ausgabe. könnte man auch aus der Transaction lesen. als Property direkt am Instrument ist es aber einfacher
+ * initialvalue: Könnte man auch aus der initialen Trasnaction lesen. Aber neben dem,dass es einfacher ist die info aus demn Properties zu lesen, könnte der Wert auch abweichen
+ es ist z.b. denkbar dass den wert des gekauften Autos direkt nach kauf reduziert und erst danach linear abschreibt
+ * optional deprecationType: Default ist Linear
+
+
+=== Loan
+
+Ein Kredit wird zunächst mit Wert=0 angelegt. Jede Auszahlung wird durch einen Transfer auf ein Giro abgebildet, wodurch der Wert ins Minus rutscht.
+Nachdem die komplette ContractSize ausgezahlt wurde(ContractSize ist negativ) beginnt ab RedemtionStart die Annuitätenzahlung.
+Hier wird automatisch in einer bestimmten AnnuityFrequenzy(monatlich, Jährlich, Quartärlich) eine Annuity gebucht.
+Diese besteht aus einer Zinszahlung von einem GiroAccount und einem AnnuityBudget, sowie einer Tilgung (Transfer von Giro nach Loan)
+
+Neben dem eigenen Kredit ist es auch möglich über Plattformen wie Kapilendo selbst Kreditgeber zu werden. Hier sind die Cashflows umgekehrt.
+Der Kredit wird ebenfalls mit 0 angelegt aber hier wird vom Giro eingezahlt bis die ContractSize erreicht ist(ContractSize ist positiv)
+Die Annuitäten bestehen entsprechend aus den Zinsen(Einnahme auf einem Giro) und der Tilgung (Transfer von Loan nach Giro)
+
+Die beiden Formen unterscheiden sich nur anhand der ContractSize(positiv bzw negativ)
+
+Neben der Automatischen Annuity Zahlung können vor RedemptionStart(Zinszahlungen) bzw auch später zum ausgleich von ungenauigkeiten in der Zinsberechnung, manuelle Cashflows verbucht werden
+
+Der LiquidityType berechnet sich aus der Maturity
+
+AnnuityBudget: Zur Buchung der Zinszahlungen wird ein Budget benötigt.
+Die Verlinkung wird in der Tabelle InstrumentGraph über den Edgetype defaultBudget abgebildet
+
+additional properties:
+
+ * InterestRate: Der ZinsSatz für den Kredit (fix)
+ * RedemptionStart: Tilgungsstart. Bei Teilauszahlungen ist es üblich das die Tilgung erst bei vollständiger Auszahlung startet.
+ Bei Kapilendo ist es auch üblich dass man zuerst den Betrag zahlt und die Tilgung später losgeht.
+ * NextAnnuity: Datum der nächsten Annuitätenzahlung um schneller festzustellen ob die nächste Zahlung fällig ist
+ * AnnuityValue: Höhe der Rate
+ * ContractSize: initiale Kredithöhe vor der ersten Tilgung
+ * AnnuityFrequenzy: Frequenz der Ratenzahlung(Monatlich, Quartälich, Jährlich)
+
+
+= Analyseübersichten
+
+== Budgetverteilung
+
+Um eine Übersicht darüber zu erlangen welche regelmäßige Einnahmen ich habe und wie diese auf die einzelnen Budget verteilt werden benötigt es eine Gegenüberstellung alle Einnahmen einer Budgetgruppe und aller Budgettransfers von dem IncomeBudget zu anderen Budgets.
+Daher sollen auch alle Dauereinnahmen immer auf das IncomeBudget laufen, da diese Übersicht sonst nicht konsistent bzw unvollständig ist.
+
+Ggf kann dies direkt in der Pflegemaske der Dauertransfers abgebildet werden, da diese übersicht immer ausgelichen sein soll und es daher praktisch ist wenn man direkt die positionen anpassen kann

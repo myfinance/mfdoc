@@ -1,0 +1,32 @@
+include::header.adoc[]
+
+= Domain Driven Design of the MyFinance Application
+
+== bounded Context Static InstrumentData
+
+is the instrumenttree an extra bounded Context or a part of this?
+
+=== Ubiquitous Language
+
+Tenant: a Tenant is a Person who has accounts and Budgets
+Giro:
+
+=== Scenario Add Tenant
+
+Given: Environment and base configuration
+When: the user adds a Tenant
+Then: The Instrument of Type Tenant, a Accountportfolio, budgetportfolio, BudgetGroup and IncomeBudget  is saved
+and the businesskey must not be longer the 32 characters (businesskey is created from the description)
+
+=== Scenario Add Giro
+
+Given: Description and Tenant
+When: the user adds a Giro Account
+Then: The Instrument of Type Giro is saved
+
+== bounded Context Transactions
+
+== bounded Context Value Calculation
+
+
+== bounded Context  MarketData Importer
