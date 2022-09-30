@@ -239,6 +239,56 @@ If you want to delete an instrument you have to invalidate the instrument not th
 
 A better usecase for an update is the valuebudget. You have to be careful because you can never change this. May be it is better to set on valuebudget per tenant and liquidity-class (one for depot, realestate and other long therms and one for deprecation objects like a car as mid-therms), but this is not implemented yet. Another solution is the delete and recreate of the instrument with another valuebudget, but this cost a lot of effort. We will see if and what we need.
 
+
+= microservices
+
+Jeder microservice hat seinen eigenen Datentopf.  Datenanfragen an andere Datenservices sollen minimiert werden ( muss nicht komplett entfallen)
+
+Problem: der Bewertungsservice benötigt viele Daten von Stammdaten und transactionservice
+
+Wie geht ddd mit so etwas um bzw habe ich die richte Aufteilung?
+
+Was sind contextrelationships bzw. Shared Kernals ( mehrere Bounded Context teilen sich Teil des dmänenmodells) - heißt das dann doch wieder Datenservice also Kommunikation über Services?
+
+Lösung über Events: beim Anlegen oder aktualisieren von Instrumenten wird auch ein Event im bewertungsservice ausgelöst. Der Bewertungsservice speichert dann die relevanten Daten und bewertet neu.
+
+Da die Infos für den calc Service von mehreren Services stammen ( Instrument Transaktion und marktdaten) können nicht alle Daten in der nachricht mitgeschickt werdn(je instrumenttyp ist zwar bisher immer nur ein service für die bewertung relevant z.b. markdaten für die Aktie aber alle daten mit schicken ergibt auch riesige nachrichten außerdem müssen die transactionen jedesmal in cashflows umgewandelt werden).
+
+Alternativ kann man auch einen messgebroker mit wiederholtabrufbaren log verwenden. das reduziert die gefahr eines Datenverlustes und mach das redundate speichern unnötig (zumindest für die cashflows, bei Instrumentänderungen wird immer nur der letzte Stand benötigt). Dies verkompliziert aber das eventhandling da jede instanz beim start erst mal das komplette log verarbeiten muss. Wie relevant ist die gefahr des Datenverlusts? Unterschiedliches Handlung von cashflowevents und stammdatenevents → zunächst nicht umsetzen und schauen wie relevant → keep it simple. Redundate Speicherung sollte einfacher umzusetzen sein → extra Jira task
+
+Daher müssen die Daten zwischen gespeichert werden in einem objecttyp je Quelle.Im Falle des instrumtservice sollte dies einfach durch key value und Listen möglich sein.
+
+Es muss nicht immer der ganze i strumentbaum geschickt werden sondern nur bei tenant und Portfolios alle direkten Kinder.
+
+Da die Wertänderungen eines Kindes immer auch zur Änderung des Parent führt muss der calc Service die Portfoliomanagement auf Anfrage immer neuberechnen oder selbstständig ermitteln wann eine Aktualisierung erfolgen muss (bei wertupdate eines Instruments schleife durch alle Instrumente vom Typ Portfolio oder Tenat und schauen wo dieses Child vorkommt)
+
+Der zransaktionservice sollte immer cashflows schicken. Bei Updates am besten delete und insert oder besser Gegengeschäfte statt löschen da so im calcservice nichts gelöscht werden muss und alles im stream verarbeitet werden kann. Weitere Vorteil ist dass man so keine ids mitschicken muss um die zu löschenden cashflows zu finden
+
+Die Entscheidung zwischen zentralen Datenservice und Events ist eine zwischen Konsistenz und Verfügbarkeit Siege cap Theorem. Im Fall der Bewertung kann man sicher damit leben das der Wert nicht immer sofort aktualisiert wird sondern erst Secunden später
+
+duplikate von nachrichten dürfen kein problem sein genausowenig wie reihenfolge oder gruppierungen von nachrichten
+
+Falls reihenfolge doch eine rolle spielt dürfen keine normalen zetstempel verwendet werrden da diese nicht zwischen rechner synchronisiert sind. daher besser vector clock oderConflict-free replicated data types (CRDTs)
+
+
+
+Der valueationservice muss daher die Events verarbeiten. Die Eingangsdaten werden dann aktualisiert und in mongo gespeichert. Anschließend wird die wertberechnung für die betroffenen Instrumente gestartet. Da hier mehrere Instrumente betroffen sein können und die Berechnung aufwändig sein kann ist eine Auslagerung in einen scalierbaren stateless Service denkbar. Das Ergebnis wird an der zentralen speicherserbice bei msg zurückgeschickt und von diesem in mongo abgelegt. Wertanfragen können dann immer von diesem aus der dB beantwortet werden.
+
+Damit hat man zwar wieder große Nachrichten. Aber falls das nicht klappt kann man auch triggernachrichten verwenden und die Berechnung liest direkt. Wichtig ist dass man einen Service hat der zentral alle zur Berechnung nötigen Daten aufarbeitet und daraus N Parallele Berechnungen startet
+
+Für den Anfang reicht aber auch alles in einem
+
+Problem: 1. Transaktionen. Was wenn nach dem Save der Event Push nicht klappt
+
+Lösung CQRS - Trennung von lesen und schreiben via Event. Daher: nach Save Event vom Gateway wird die fachlogik angewendet und dann ein Aprove Event gesendet auf das sich ein simpler schreibservice und alle anderen subscrbe siehe Bild s 54 in reaktive microservices. In der Praxis bedeutet das weniger komplizierte Logik in den reaktive streams in dem zb die Erstellung von tenant Budgetgroup etc. entzerrt wird. Der validierungsservice arbeitet mit den transportobjekten und sendet verschiedene Approve msg. Im Save Service können alle instrumentrypen gleichbehandelt werden. Ggf extra Service für instruntbaum Änderungen insbesondere für nicht tenanttrees. Wichtig ist dass wenn möglich aus dem validierungsservice eine vollständige Nachricht ausgeht aus der die anderen Service die für sie relevanten Daten ziehen können - eine eigene view
+
+2. was wenn sich die Logik ändert oder der Service bei der Verarbeitung einer Nachricht abbricht? Daher ich die Nachricht nochmal verarbeiten muss?
+
+Lösung eventlog - später einführen - insbesondere für cashflows die dann direkt im stream verarbeitet werden können. Sollte sogar nur für cashflows relevant sein. Bei allen anderen interessiert nur der letzte stand d.h. Ein Update auf das Instrument sollte zu einer Aktualisierung führen und zu einer neuen Nachricht. Sollten Cashflow Updates mit Gegengeschäften umgesetzt werden funktioniert ein Update nicht so einfach und  ein verlorener Cashflow ist nicht leicht zu reparieren
+
+Für Service übergreifende Transaktionen kann man das Saga Pattern verwenden wie auf s 64 in reactive microservice beschrieben. Dies erhöht die complexität aber Erhebung ein coordinator implementiert werden muss und die entsprechenden compensations wie löschen des eben eingefügten Instrument im fehlerfall. Die bessere Strategie ist es den Fehler zu beheben und die Nachricht erneut zu bearbeiten
+
+
 = coding conventions for Angular
 
 == module vs component vs view
