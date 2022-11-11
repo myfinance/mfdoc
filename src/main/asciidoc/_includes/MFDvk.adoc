@@ -311,3 +311,26 @@ but if you delete the  package-lock.json it is unpredictable which version you g
 
 In a dashboard a more then one widget action at the same time. So it is difficult to handle widget status like isLoading in a global generic widgetService. You have to save the stutus for each widget individual
 Due to interaction between widgets it is better anyway to save status and manage data loading in the dashboard.
+
+= Reactive Programming
+
+Allways handle empty results with switchIfEmpty otherwise the process of the stream will sop without a message.
+Attention:
+the funktion must return a Flux or Mono. A direct "throw Exception" will be allways triggered. Do it like this For example:
+....
+this.transactionEnvironment.getDataReader().findInstrumentByBusinesskeyIn(cashflows.keySet())
+                .switchIfEmpty(handleNotExistingInstrument2())
+                .collectList().flatMap(i->validateInstruments(i))
+                .switchIfEmpty(handleNotExistingInstrument())
+                .flatMap(this::saveTransaction);
+
+    private Mono<String> handleNotExistingInstrument(){
+        return Mono.error(new MFException(MFMsgKey.UNKNOWN_INSTRUMENT_EXCEPTION, "No Instruments for this transaction available."));
+    }
+
+    private Flux<Instrument> handleNotExistingInstrument2(){
+        return Flux.error(new MFException(MFMsgKey.UNKNOWN_INSTRUMENT_EXCEPTION, "No Instruments for this transaction available."));
+    }
+....
+
+In this Example the first Switch is not really neccessary because flux returns after collect an empty List but do not stop the stream process. This can be handled in validateInstruments
