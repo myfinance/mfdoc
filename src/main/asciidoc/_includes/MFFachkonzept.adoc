@@ -603,6 +603,13 @@ additional properties:
  * ContractSize: initiale Kredithöhe vor der ersten Tilgung
  * AnnuityFrequenzy: Frequenz der Ratenzahlung(Monatlich, Quartälich, Jährlich)
 
+= Inaktivierung von Instrumenten
+
+Um auszuschliessen dass auf geschlossenen Konten/Budgets noch Buchungen durchgeführt werden und um die Übersichten einfacher zu gestallten können Instrumente Inaktiviert werden.
+Dies kann bei Cashaccounts, Portfolien, Depots, Loans, BudgetGroups und Budgets nur erfolgen wenn der Wert 0 ist.
+DeprecationObjects und Immobilien können auch durch einen Verkauf inaktiviert werden dann spielt der Wert keine Rolle
+Aktien und andere Marktinstrumente können jeder Zeit deaktiviert werden. Hier ist die Deaktivierung nur ein Filterkriterium um beim Kauf oder Datenimport nicht mehr alle Instrumente angezeigt zu bekommen. Entsprechend können auch Instrumente deaktiviert werden für die noch Positionen existieren, da die jeder zeit verkauft werden können ohne berücksichtigung das aktiv-flags.
+
 
 = Analyseübersichten
 
