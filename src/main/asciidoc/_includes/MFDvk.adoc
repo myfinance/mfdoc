@@ -315,3 +315,14 @@ this.transactionEnvironment.getDataReader().findInstrumentByBusinesskeyIn(cashfl
 ....
 
 In this Example the first Switch is not really neccessary because flux returns after collect an empty List but do not stop the stream process. This can be handled in validateInstruments
+
+= Logging
+
+write all messages via de.hf.framework.audit.AuditService!
+This class handles how to write logs, just wirte via Log4j or push the msg in a DB or ElasticSearch.
+
+In case of error this class can also hanle to throw Exceptions or return Mono.Error (see above)
+....
+auditService.handleMonoError(errorMsg, AUDIT_MSG_TYPE, MFMsgKey.UNKNOWN_INSTRUMENT_EXCEPTION);
+
+....
