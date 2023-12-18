@@ -1,0 +1,19 @@
+{
+	"nodes":[
+		{"id":"b39a34ffdf14c511","x":-279,"y":-244,"width":250,"height":60,"color":"5","type":"text","text":"Save Instrument"},
+		{"id":"16167c9cc1a676fb","x":-60,"y":-380,"width":250,"height":60,"color":"5","type":"text","text":"validateInstrument"},
+		{"id":"268c03c19d02755f","x":-80,"y":-540,"width":250,"height":60,"color":"4","type":"text","text":"API-SaveInstrument"},
+		{"id":"a1cf4afd954997bd","x":140,"y":-244,"width":250,"height":60,"color":"5","type":"text","text":"Save InstrumentTree"},
+		{"id":"19a96ed54f8ed203","x":-60,"y":-20,"width":250,"height":60,"color":"2","type":"text","text":"ValuationService: save Instrument"},
+		{"id":"a3f93a6ef74fb884","x":-185,"y":240,"width":250,"height":60,"color":"2","type":"text","text":"ValuationProcessor"},
+		{"id":"97a4107f8d869e50","x":-360,"y":440,"width":250,"height":60,"color":"5","type":"text","text":"InstrumentService: ValueProcessor"}
+	],
+	"edges":[
+		{"id":"ff3075cd17edd653","fromNode":"268c03c19d02755f","fromSide":"bottom","toNode":"16167c9cc1a676fb","toSide":"top","label":"validateInstrumentRequest"},
+		{"id":"e191568b84f8717d","fromNode":"16167c9cc1a676fb","fromSide":"bottom","toNode":"b39a34ffdf14c511","toSide":"top","label":"instrumentApproved"},
+		{"id":"30790255ecab104e","fromNode":"16167c9cc1a676fb","fromSide":"bottom","toNode":"a1cf4afd954997bd","toSide":"top"},
+		{"id":"cc7e9d8f4c9293e3","fromNode":"16167c9cc1a676fb","fromSide":"bottom","toNode":"19a96ed54f8ed203","toSide":"top"},
+		{"id":"2ff8dc3eea0cd80c","fromNode":"a3f93a6ef74fb884","fromSide":"bottom","toNode":"97a4107f8d869e50","toSide":"top","label":"valueCurveCalculated"},
+		{"id":"fc9e20bbbe1cb382","fromNode":"19a96ed54f8ed203","fromSide":"bottom","toNode":"a3f93a6ef74fb884","toSide":"top","label":"valuationDataChanged"}
+	]
+}
